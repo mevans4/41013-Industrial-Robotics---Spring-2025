@@ -38,24 +38,13 @@ function AuboPickAndPlace(robot, bookManager, bookIndices, gui)
 
     % Process specific book indices
     for i = 1:length(bookIndices)
-        % Check if demo was cancelled or paused
+        % Check if demo was paused (for E-Stop)
         if hasGUI
-            if gui.demoCancelled
-                fprintf('⚠ AUBO operation cancelled by user\n');
-                break;
-            end
-
             % Wait while paused
-            while gui.demoPaused && ~gui.demoCancelled
+            while gui.demoPaused
                 fprintf('⏸ AUBO operation paused - waiting for resume...\n');
                 pause(0.5);
                 drawnow();
-            end
-
-            % Check again after pause
-            if gui.demoCancelled
-                fprintf('⚠ AUBO operation cancelled by user\n');
-                break;
             end
         end
 
@@ -317,24 +306,12 @@ function success = moveAuboToPoint(robot, targetPosition, referenceConfig, isFir
     qTraj = jtraj(qCurrent, qTarget, steps);
 
     for i = 1:steps
-        % Check for cancellation or pause
+        % Check for pause (E-Stop)
         if hasGUI
-            if gui.demoCancelled
-                fprintf('  AUBO movement cancelled\n');
-                success = false;
-                return;
-            end
-
             % Wait while paused
-            while gui.demoPaused && ~gui.demoCancelled
+            while gui.demoPaused
                 pause(0.1);
                 drawnow();
-            end
-
-            if gui.demoCancelled
-                fprintf('  AUBO movement cancelled after pause\n');
-                success = false;
-                return;
             end
         end
 
@@ -389,24 +366,12 @@ function success = moveAuboWithBook(robot, targetPosition, bookData, referenceCo
     end
 
     for i = 1:steps
-        % Check for cancellation or pause
+        % Check for pause (E-Stop)
         if hasGUI
-            if gui.demoCancelled
-                fprintf('  AUBO book movement cancelled\n');
-                success = false;
-                return;
-            end
-
             % Wait while paused
-            while gui.demoPaused && ~gui.demoCancelled
+            while gui.demoPaused
                 pause(0.1);
                 drawnow();
-            end
-
-            if gui.demoCancelled
-                fprintf('  AUBO book movement cancelled after pause\n');
-                success = false;
-                return;
             end
         end
 

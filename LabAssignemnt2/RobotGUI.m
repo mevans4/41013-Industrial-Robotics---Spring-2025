@@ -30,7 +30,6 @@ classdef RobotGUI < handle
 
         % Demo State Management
         isDemoRunning = false
-        demoCancelled = false
         demoPaused = false
     end
 
@@ -83,8 +82,8 @@ classdef RobotGUI < handle
                 'FontWeight', 'bold', 'FontSize', 12, ...
                 'BackgroundColor', [0.98 0.98 0.98]);
 
-            grid = uigridlayout(leftPanel, [12 1]);
-            grid.RowHeight = {'fit', 'fit', '1x', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x'};
+            grid = uigridlayout(leftPanel, [11 1]);
+            grid.RowHeight = {'fit', 'fit', '1x', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x'};
 
             % E-STOP BUTTON (Large, Red)
             self.buttons.estop = uibutton(grid, 'push', ...
@@ -163,15 +162,6 @@ classdef RobotGUI < handle
                 'BackgroundColor', [0.2 0.7 0.3], ...
                 'FontColor', 'white', ...
                 'ButtonPushedFcn', @(btn,event) self.OnStartDemo());
-
-            % CANCEL DEMO BUTTON (Initially disabled)
-            self.buttons.cancelDemo = uibutton(grid, 'push', ...
-                'Text', '⏹ CANCEL DEMO', ...
-                'FontSize', 12, 'FontWeight', 'bold', ...
-                'BackgroundColor', [0.9 0.3 0.2], ...
-                'FontColor', 'white', ...
-                'Enable', 'off', ...
-                'ButtonPushedFcn', @(btn,event) self.OnCancelDemo());
         end
 
         %% Center Panel: Joint Control
@@ -381,20 +371,6 @@ classdef RobotGUI < handle
             end
         end
 
-        %% Callback: Cancel Demo
-        function OnCancelDemo(self)
-            fprintf('\n*** CANCELLING DEMO ***\n');
-
-            % Set cancel flag
-            self.demoCancelled = true;
-
-            % Update GUI
-            self.buttons.cancelDemo.Enable = 'off';
-            self.buttons.startDemo.Text = '⚠ DEMO CANCELLED';
-            self.buttons.startDemo.BackgroundColor = [0.8 0.5 0.1];
-
-            fprintf('Demo will stop at next safe point.\n');
-        end
 
         %% Callback: Robot Selected
         function OnRobotSelected(self, robotName)
@@ -565,20 +541,92 @@ classdef RobotGUI < handle
 
         %% Callback: Reset System
         function OnResetSystem(self)
-            fprintf('Resetting system...\n');
+            fprintf('\n════════════════════════════════════════════════════════\n');
+            fprintf('   RESETTING ENTIRE SYSTEM\n');
+            fprintf('════════════════════════════════════════════════════════\n\n');
 
             % Clear e-stop if active
             if ~self.eStopManager.IsOperational()
+                fprintf('Clearing E-Stop...\n');
                 self.eStopManager.Reset();
             end
 
             % Clear sensors
+            fprintf('Clearing sensors...\n');
             self.sensorSimulator.Clear();
 
             % Reset demo state
             self.isDemoRunning = false;
-            self.demoCancelled = false;
             self.demoPaused = false;
+
+            % Move all robots to home positions
+            fprintf('Moving all robots to home positions...\n');
+            for i = 1:length(self.robots)
+                robot = self.robots{i};
+                try
+                    % Get home position (all zeros for all joints)
+                    qCurrent = robot.model.getpos();
+                    homeQ = zeros(1, length(qCurrent));
+
+                    % Create smooth trajectory to home
+                    steps = 30;
+                    qTraj = jtraj(qCurrent, homeQ, steps);
+
+                    % Animate to home position
+                    for j = 1:steps
+                        robot.model.animate(qTraj(j, :));
+                        drawnow();
+                        pause(0.02);
+                    end
+
+                    fprintf('  ✓ Robot %d moved to home\n', i);
+                catch ME
+                    fprintf('  ⚠ Warning: Could not move robot %d to home: %s\n', i, ME.message);
+                end
+            end
+
+            % Clear all books from the scene
+            fprintf('Clearing all books...\n');
+            try
+                % Find all book objects in the scene
+                h = findobj('Type', 'patch');
+                for i = 1:length(h)
+                    % Check if this is a book object
+                    vertices = get(h(i), 'Vertices');
+                    if ~isempty(vertices)
+                        % Delete if it looks like a book (has vertices)
+                        faceColor = get(h(i), 'FaceColor');
+                        if isnumeric(faceColor) && length(faceColor) == 3
+                            % Check if it's a colored object (likely a book)
+                            if any(faceColor == [0 1 0]) || any(faceColor == [0 0 1]) || any(faceColor == [1 0 0])
+                                delete(h(i));
+                            end
+                        end
+                    end
+                end
+                fprintf('  ✓ Books cleared\n');
+            catch ME
+                fprintf('  ⚠ Warning: Could not clear all books: %s\n', ME.message);
+            end
+
+            % Respawn books at original positions
+            fprintf('Respawning books at original positions...\n');
+            try
+                BookSpawner.spawnBooks();
+                fprintf('  ✓ Books respawned: 6 books (2 red, 2 green, 2 blue)\n');
+            catch ME
+                fprintf('  ⚠ Warning: Could not respawn books: %s\n', ME.message);
+            end
+
+            % Reset book manager
+            fprintf('Resetting book manager...\n');
+            try
+                self.bookManager.reset();
+                self.bookManager.storeBookHandles();
+                fprintf('  ✓ Book manager reset\n');
+            catch ME
+                fprintf('  ⚠ Warning: Could not reset book manager: %s\n', ME.message);
+            end
 
             % Update GUI
             self.buttons.estop.BackgroundColor = [0.8 0.1 0.1];
@@ -589,7 +637,6 @@ classdef RobotGUI < handle
             self.buttons.startDemo.Enable = 'on';
             self.buttons.startDemo.Text = '▶ START BOOK DEMO';
             self.buttons.startDemo.BackgroundColor = [0.2 0.7 0.3];
-            self.buttons.cancelDemo.Enable = 'off';
 
             self.labels.systemStatus.Text = '● System: OPERATIONAL';
             self.labels.systemStatus.FontColor = [0 0.6 0];
@@ -597,10 +644,13 @@ classdef RobotGUI < handle
             self.labels.estopStatus.FontColor = [0 0 0];
             self.labels.sensorStatus.Text = '○ Sensors: CLEAR';
             self.labels.sensorStatus.FontColor = [0 0 0];
+            self.labels.booksStatus.Text = '○ Books: 0/6 Sorted';
 
             self.SetMovementControlsEnabled(true);
 
-            fprintf('System reset complete\n');
+            fprintf('\n════════════════════════════════════════════════════════\n');
+            fprintf('   SYSTEM RESET COMPLETE - Ready to run demo again!\n');
+            fprintf('════════════════════════════════════════════════════════\n\n');
         end
 
         %% Callback: Step Size Changed
@@ -691,31 +741,21 @@ classdef RobotGUI < handle
 
             % Set demo state flags
             self.isDemoRunning = true;
-            self.demoCancelled = false;
             self.demoPaused = false;
 
-            % Update GUI - disable start, enable cancel
+            % Update GUI - disable start during demo
             self.buttons.startDemo.Enable = 'off';
             self.buttons.startDemo.Text = '⏳ DEMO RUNNING...';
-            self.buttons.cancelDemo.Enable = 'on';
 
             try
                 % Run automated sorting
                 self.RunAutomatedSorting();
 
-                if self.demoCancelled
-                    fprintf('\n════════════════════════════════════════════════════════\n');
-                    fprintf('   DEMO CANCELLED BY USER\n');
-                    fprintf('════════════════════════════════════════════════════════\n\n');
-                    self.buttons.startDemo.Text = '⚠ DEMO CANCELLED';
-                    self.buttons.startDemo.BackgroundColor = [0.8 0.5 0.1];
-                else
-                    fprintf('\n════════════════════════════════════════════════════════\n');
-                    fprintf('   DEMO COMPLETED SUCCESSFULLY!\n');
-                    fprintf('════════════════════════════════════════════════════════\n\n');
-                    self.buttons.startDemo.Text = '✓ DEMO COMPLETE';
-                    self.buttons.startDemo.BackgroundColor = [0.2 0.7 0.3];
-                end
+                fprintf('\n════════════════════════════════════════════════════════\n');
+                fprintf('   DEMO COMPLETED SUCCESSFULLY!\n');
+                fprintf('════════════════════════════════════════════════════════\n\n');
+                self.buttons.startDemo.Text = '✓ DEMO COMPLETE';
+                self.buttons.startDemo.BackgroundColor = [0.2 0.7 0.3];
             catch ME
                 fprintf('\nERROR during demo: %s\n', ME.message);
                 fprintf('Stack trace:\n');
@@ -728,34 +768,26 @@ classdef RobotGUI < handle
 
             % Reset demo state
             self.isDemoRunning = false;
-            self.demoCancelled = false;
             self.demoPaused = false;
 
-            % Re-enable demo button, disable cancel
+            % Re-enable demo button
             pause(2);
             self.buttons.startDemo.Enable = 'on';
             self.buttons.startDemo.Text = '▶ START BOOK DEMO';
             self.buttons.startDemo.BackgroundColor = [0.2 0.7 0.3];
-            self.buttons.cancelDemo.Enable = 'off';
         end
 
         %% Run Automated Sorting
         function RunAutomatedSorting(self)
             fprintf('E-Stop and sensor monitoring is ACTIVE during operation\n');
             fprintf('Press E-Stop button in GUI to halt at any time\n');
-            fprintf('Press CANCEL DEMO button to stop demo and return to manual control\n\n');
+            fprintf('Press RESET SYSTEM button to stop and reset the entire system\n\n');
 
             % Phase 1: UR3 Sorting
             fprintf('════ PHASE 1: UR3 SORTING BOOKS ════\n');
             if self.CheckSafetyAndState()
                 self.BookPickAndPlaceWithSafety(self.robots{1});
             else
-                return;
-            end
-
-            % Check if demo was cancelled
-            if self.demoCancelled
-                fprintf('Demo cancelled after Phase 1\n');
                 return;
             end
 
@@ -767,23 +799,11 @@ classdef RobotGUI < handle
                 return;
             end
 
-            % Check if demo was cancelled
-            if self.demoCancelled
-                fprintf('Demo cancelled after Phase 2\n');
-                return;
-            end
-
             % Phase 3: KUKA Green Books
             fprintf('\n════ PHASE 3: KUKA PICKING GREEN BOOKS ════\n');
             if self.CheckSafetyAndState()
                 self.KukaPickAndPlaceWithSafety(self.robots{3}, [2, 1]);
             else
-                return;
-            end
-
-            % Check if demo was cancelled
-            if self.demoCancelled
-                fprintf('Demo cancelled after Phase 3\n');
                 return;
             end
 
@@ -811,27 +831,13 @@ classdef RobotGUI < handle
             end
         end
 
-        %% Safety and State Check Function (includes cancel/pause checks)
+        %% Safety and State Check Function (includes pause checks)
         function safe = CheckSafetyAndState(self)
-            % First check if demo was cancelled
-            if self.demoCancelled
-                fprintf('⚠ OPERATION CANCELLED BY USER\n');
-                safe = false;
-                return;
-            end
-
             % Wait while demo is paused
-            while self.demoPaused && ~self.demoCancelled
+            while self.demoPaused
                 fprintf('⏸ Demo PAUSED - waiting for resume...\n');
                 pause(0.5);
                 drawnow();  % Process GUI events
-            end
-
-            % Check again if cancelled during pause
-            if self.demoCancelled
-                fprintf('⚠ OPERATION CANCELLED BY USER\n');
-                safe = false;
-                return;
             end
 
             % Now check safety systems
@@ -859,10 +865,8 @@ classdef RobotGUI < handle
             % Call original function with GUI reference for state checking
             BookPickAndPlace(robot, self.bookManager, self);
 
-            % Update books status if not cancelled
-            if ~self.demoCancelled
-                self.labels.booksStatus.Text = '○ Books: 6/6 Sorted (UR3)';
-            end
+            % Update books status
+            self.labels.booksStatus.Text = '○ Books: 6/6 Sorted (UR3)';
         end
 
         function MotomanPickAndPlaceWithSafety(self, robot, bookIndices)
@@ -873,10 +877,8 @@ classdef RobotGUI < handle
 
             MotomanPickAndPlace(robot, self.bookManager, bookIndices, self);
 
-            % Update books status if not cancelled
-            if ~self.demoCancelled
-                self.labels.booksStatus.Text = '○ Books: Red Books Stacked';
-            end
+            % Update books status
+            self.labels.booksStatus.Text = '○ Books: Red Books Stacked';
         end
 
         function KukaPickAndPlaceWithSafety(self, robot, bookIndices)
@@ -887,10 +889,8 @@ classdef RobotGUI < handle
 
             KukaPickAndPlace(robot, self.bookManager, bookIndices, self);
 
-            % Update books status if not cancelled
-            if ~self.demoCancelled
-                self.labels.booksStatus.Text = '○ Books: Green Books Stacked';
-            end
+            % Update books status
+            self.labels.booksStatus.Text = '○ Books: Green Books Stacked';
         end
 
         function AuboPickAndPlaceWithSafety(self, robot, bookIndices)
@@ -901,10 +901,8 @@ classdef RobotGUI < handle
 
             AuboPickAndPlace(robot, self.bookManager, bookIndices, self);
 
-            % Update books status if not cancelled
-            if ~self.demoCancelled
-                self.labels.booksStatus.Text = '○ Books: All Complete!';
-            end
+            % Update books status
+            self.labels.booksStatus.Text = '○ Books: All Complete!';
         end
     end
 end
