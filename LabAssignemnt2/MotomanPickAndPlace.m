@@ -1,10 +1,14 @@
-function MotomanPickAndPlace(robot, bookManager, bookIndices)
+function MotomanPickAndPlace(robot, bookManager, bookIndices, gui)
     % MotomanPickAndPlace_v2 - Yaskawa Motoman GP4 Book Stacking System
     % Version 2: Picks books from targetPos locations and places them at finalPos locations
     % Uses improved book position logic from original version
     % bookIndices: Specific books for Motoman to handle (e.g., [4, 3])
-    
+    % gui: Optional GUI reference for E-Stop and cancellation checking
+
     fprintf('Starting Motoman GP4 book stacking operation (v2)...\n');
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 4) && ~isempty(gui);
     
     % Get optimized home position for the robot
     homeQ = getMotomanHomePosition(robot);
@@ -35,6 +39,16 @@ function MotomanPickAndPlace(robot, bookManager, bookIndices)
     
     % Process specific book indices
     for i = 1:length(bookIndices)
+        % Check if demo was paused (for E-Stop)
+        if hasGUI
+            % Wait while paused
+            while gui.demoPaused
+                fprintf('⏸ Motoman operation paused - waiting for resume...\n');
+                pause(0.5);
+                drawnow();
+            end
+        end
+
         bookIndex = bookIndices(i);
         fprintf('\n=== Motoman Processing Book %d/%d ===\n', i, length(bookIndices));
         
@@ -69,7 +83,7 @@ function MotomanPickAndPlace(robot, bookManager, bookIndices)
         
         % Execute pick and place operation
         isFirstBook = (i == 1);
-        success = executeMotomanPickPlace(robot, bookHandle, originalVerts, bookSurfacePos, placePos, homeQ, i, bookIndex, successfulIKSolutions);
+        success = executeMotomanPickPlace(robot, bookHandle, originalVerts, bookSurfacePos, placePos, homeQ, i, bookIndex, successfulIKSolutions, gui);
         
         if success
             % Store successful IK solution for future use
@@ -91,10 +105,13 @@ function MotomanPickAndPlace(robot, bookManager, bookIndices)
     fprintf('\n=== Motoman Operation Complete: Processed %d books ===\n', length(bookIndices));
 end
 
-function success = executeMotomanPickPlace(robot, bookHandle, originalVerts, bookSurfacePos, targetPos, homeQ, sequenceIndex, bookIndex, successfulIKSolutions)
-    % V2 execution with improved IK handling
+function success = executeMotomanPickPlace(robot, bookHandle, originalVerts, bookSurfacePos, targetPos, homeQ, sequenceIndex, bookIndex, successfulIKSolutions, gui)
+    % V2 execution with improved IK handling and GUI support
     pickConfig = homeQ;
     isFirstBook = (sequenceIndex == 1);
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 10) && ~isempty(gui);
     
     % === APPROACH PHASE: Move above the pick position ===
     approachHeight = 0.12;
@@ -107,13 +124,13 @@ function success = executeMotomanPickPlace(robot, bookHandle, originalVerts, boo
     end
 
     fprintf('Moving to approach position: [%.3f, %.3f, %.3f]\n', approachPos(1), approachPos(2), approachPos(3));
-    if ~moveMotomanToPoint(robot, approachPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveMotomanToPoint(robot, approachPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to move to approach position for book %d\n', bookIndex);
         success = false;
         return;
     end
     pause(0.2);
-    
+
     % === PICK PHASE: Move down to grasp the book ===
     pickHeight = 0.005;
     pickPos = [bookSurfacePos(1), bookSurfacePos(2), bookSurfacePos(3) + pickHeight];
@@ -125,7 +142,7 @@ function success = executeMotomanPickPlace(robot, bookHandle, originalVerts, boo
     end
 
     fprintf('Moving to pick position: [%.3f, %.3f, %.3f]\n', pickPos(1), pickPos(2), pickPos(3));
-    if ~moveMotomanToPoint(robot, pickPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveMotomanToPoint(robot, pickPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to move to pick position for book %d\n', bookIndex);
         success = false;
         return;
@@ -161,17 +178,17 @@ function success = executeMotomanPickPlace(robot, bookHandle, originalVerts, boo
     end
 
     fprintf('Lifting book to: [%.3f, %.3f, %.3f]\n', liftPos(1), liftPos(2), liftPos(3));
-    if ~moveMotomanWithBook(robot, liftPos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveMotomanWithBook(robot, liftPos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to lift book %d\n', bookIndex);
         success = false;
         return;
     end
     pause(0.2);
-    
+
     % === TARGET APPROACH: Move above the placement location ===
     targetEePos = targetPos - bookOffset;
     fprintf('Target EE position for placement: [%.3f, %.3f, %.3f]\n', targetEePos(1), targetEePos(2), targetEePos(3));
-    
+
     targetApproachHeight = 0.12;
     targetApproach = [targetEePos(1), targetEePos(2), targetEePos(3) + targetApproachHeight];
 
@@ -182,7 +199,7 @@ function success = executeMotomanPickPlace(robot, bookHandle, originalVerts, boo
     end
 
     fprintf('Moving to placement approach: [%.3f, %.3f, %.3f]\n', targetApproach(1), targetApproach(2), targetApproach(3));
-    if ~moveMotomanWithBook(robot, targetApproach, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveMotomanWithBook(robot, targetApproach, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to move to placement approach for book %d\n', bookIndex);
         success = false;
         return;
@@ -200,17 +217,17 @@ function success = executeMotomanPickPlace(robot, bookHandle, originalVerts, boo
     end
 
     fprintf('Placing book at final position: [%.3f, %.3f, %.3f]\n', targetEePos(1), targetEePos(2), targetEePos(3));
-    if ~moveMotomanWithBook(robot, targetEePos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveMotomanWithBook(robot, targetEePos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to place book %d\n', bookIndex);
         success = false;
         return;
     end
     pause(0.3);
-    
+
     % === POSITION VERIFICATION: Ensure perfect placement accuracy ===
     finalVerts = get(bookHandle, 'Vertices');
     currentCenter = mean(finalVerts, 1);
-    
+
     % Calculate and correct any placement errors
     positionError = targetPos - currentCenter;
     if norm(positionError) > 0.001
@@ -218,7 +235,7 @@ function success = executeMotomanPickPlace(robot, bookHandle, originalVerts, boo
             positionError(1), positionError(2), positionError(3));
         set(bookHandle, 'Vertices', finalVerts + positionError);
     end
-    
+
     % Final verification of book placement
     finalVerts = get(bookHandle, 'Vertices');
     finalCenter = mean(finalVerts, 1);
@@ -228,10 +245,10 @@ function success = executeMotomanPickPlace(robot, bookHandle, originalVerts, boo
     fprintf('Placement Error: [%.3f, %.3f, %.3f]\n', ...
         finalCenter(1)-targetPos(1), finalCenter(2)-targetPos(2), finalCenter(3)-targetPos(3));
     fprintf('=== END VERIFICATION ===\n');
-    
+
     % === RETREAT PHASE: Move away after placement ===
     fprintf('Retreating to: [%.3f, %.3f, %.3f]\n', targetApproach(1), targetApproach(2), targetApproach(3));
-    if ~moveMotomanToPoint(robot, targetApproach, pickConfig, false, bookIndex, successfulIKSolutions)
+    if ~moveMotomanToPoint(robot, targetApproach, pickConfig, false, bookIndex, successfulIKSolutions, gui)
         fprintf('WARNING: Failed to retreat after placing book %d\n', bookIndex);
     end
     pause(0.2);
@@ -241,9 +258,12 @@ end
 
 %% V2 MOVEMENT FUNCTIONS WITH IMPROVED IK HANDLING
 
-function success = moveMotomanToPoint(robot, targetPosition, referenceConfig, isFirstBook, bookIndex, successfulIKSolutions)
+function success = moveMotomanToPoint(robot, targetPosition, referenceConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
     steps = 25;
-    
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 7) && ~isempty(gui);
+
     targetTransform = transl(targetPosition) * trotx(pi) * trotz(-pi/2);
     
     % SMART IK SOLUTION USING PREVIOUS SUCCESSFUL SOLUTIONS
@@ -273,19 +293,31 @@ function success = moveMotomanToPoint(robot, targetPosition, referenceConfig, is
     
     qCurrent = robot.model.getpos();
     qTraj = jtraj(qCurrent, qTarget, steps);
-    
+
     for i = 1:steps
+        % Check for pause (E-Stop)
+        if hasGUI
+            % Wait while paused
+            while gui.demoPaused
+                pause(0.1);
+                drawnow();
+            end
+        end
+
         robot.model.animate(qTraj(i, :));
         drawnow();
         pause(0.02);
     end
-    
+
     success = true;
 end
 
-function success = moveMotomanWithBook(robot, targetPosition, bookData, referenceConfig, isFirstBook, bookIndex, successfulIKSolutions)
+function success = moveMotomanWithBook(robot, targetPosition, bookData, referenceConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
     steps = 25;
-    
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 8) && ~isempty(gui);
+
     targetTransform = transl(targetPosition) * trotx(pi) * trotz(-pi/2);
     
     % SMART IK SOLUTION USING PREVIOUS SUCCESSFUL SOLUTIONS
@@ -323,9 +355,18 @@ function success = moveMotomanWithBook(robot, targetPosition, bookData, referenc
     end
     
     for i = 1:steps
+        % Check for pause (E-Stop)
+        if hasGUI
+            % Wait while paused
+            while gui.demoPaused
+                pause(0.1);
+                drawnow();
+            end
+        end
+
         q = qTraj(i, :);
         robot.model.animate(q);
-        
+
         % Get current end effector pose
         currentEePose = robot.model.fkine(q);
         if isa(currentEePose, 'SE3')
@@ -333,27 +374,27 @@ function success = moveMotomanWithBook(robot, targetPosition, bookData, referenc
         else
             currentMatrix = currentEePose;
         end
-        
+
         % Calculate relative transformation
         relativeTransform = initialMatrix \ currentMatrix;
-        
+
         % Apply transformation to book
         currentVerts = bookData.originalVerts;
         originalCenter = mean(currentVerts, 1);
         centeredVerts = currentVerts - originalCenter;
         rotatedVerts = (relativeTransform(1:3, 1:3) * centeredVerts')';
-        
+
         % Calculate new book position
         currentEePos = getPositionFromTransform(currentEePose);
         calculatedBookPos = currentEePos + bookData.offset;
         newVerts = rotatedVerts + calculatedBookPos;
-        
+
         set(bookData.handle, 'Vertices', newVerts);
-        
+
         drawnow();
         pause(0.02);
     end
-    
+
     success = true;
 end
 
