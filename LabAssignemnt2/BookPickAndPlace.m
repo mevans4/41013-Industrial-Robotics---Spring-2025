@@ -46,6 +46,13 @@ function BookPickAndPlace(robot, bookManager)
         
         % === APPROACH PHASE: Move above the book ===
         approachPos = [bookPos(1), bookPos(2), bookPickHeight + 0.10];
+
+        % SAFETY: Validate approach position is above table
+        [approachPos, wasModified] = SafetyUtils.validateZPosition(approachPos);
+        if wasModified
+            fprintf('*** SAFETY: Approach position corrected to prevent table collision\n');
+        end
+
         fprintf('Moving to approach position: [%.3f, %.3f, %.3f]\n', approachPos(1), approachPos(2), approachPos(3));
         if ~moveRobotWithConfig(robot, approachPos, pickConfig)
             fprintf('ERROR: Failed to move to approach position for book %d\n', bookIndex);
@@ -55,6 +62,13 @@ function BookPickAndPlace(robot, bookManager)
         
         % === PICK PHASE: Move down to grasp the book ===
         pickPos = [bookPos(1), bookPos(2), bookPickHeight + 0.01];
+
+        % SAFETY: Validate pick position is above table
+        [pickPos, wasModified] = SafetyUtils.validateZPosition(pickPos);
+        if wasModified
+            fprintf('*** SAFETY: Pick position corrected to prevent table collision\n');
+        end
+
         fprintf('Moving to pick position: [%.3f, %.3f, %.3f]\n', pickPos(1), pickPos(2), pickPos(3));
         if ~moveRobotWithConfig(robot, pickPos, pickConfig)
             fprintf('ERROR: Failed to move to pick position for book %d\n', bookIndex);
@@ -82,6 +96,13 @@ function BookPickAndPlace(robot, bookManager)
         
         % === LIFT PHASE: Raise the book after grasping ===
         liftPos = [bookPos(1), bookPos(2), bookPickHeight + 0.15];
+
+        % SAFETY: Validate lift position is above table
+        [liftPos, wasModified] = SafetyUtils.validateZPosition(liftPos);
+        if wasModified
+            fprintf('*** SAFETY: Lift position corrected to prevent table collision\n');
+        end
+
         fprintf('Lifting book to: [%.3f, %.3f, %.3f]\n', liftPos(1), liftPos(2), liftPos(3));
         if ~moveRobotWithBookPerfectPlacement(robot, liftPos, bookHandle, bookData, pickConfig)
             fprintf('ERROR: Failed to lift book %d\n', bookIndex);
@@ -94,6 +115,13 @@ function BookPickAndPlace(robot, bookManager)
         fprintf('Target EE position for placement: [%.3f, %.3f, %.3f]\n', targetEePos(1), targetEePos(2), targetEePos(3));
         
         targetApproach = [targetEePos(1), targetEePos(2), targetEePos(3) + 0.12];
+
+        % SAFETY: Validate approach position is above table
+        [targetApproach, wasModified] = SafetyUtils.validateZPosition(targetApproach);
+        if wasModified
+            fprintf('*** SAFETY: Target approach position corrected to prevent table collision\n');
+        end
+
         fprintf('Moving to target approach: [%.3f, %.3f, %.3f]\n', targetApproach(1), targetApproach(2), targetApproach(3));
         if ~moveRobotWithBookPerfectPlacement(robot, targetApproach, bookHandle, bookData, pickConfig)
             fprintf('ERROR: Failed to move to target approach for book %d\n', bookIndex);
@@ -102,8 +130,16 @@ function BookPickAndPlace(robot, bookManager)
         pause(0.2);
         
         % === PLACE PHASE: Lower the book to target position ===
+        % SAFETY: Validate placement position is above table
+        [targetEePos, wasModified] = SafetyUtils.validateZPosition(targetEePos);
+        if wasModified
+            fprintf('*** SAFETY: Placement position corrected to prevent table collision\n');
+            % Update bookData target position if modified
+            bookData.targetPos(3) = max(bookData.targetPos(3), SafetyUtils.MIN_Z_HEIGHT);
+        end
+
         fprintf('Placing book at target: [%.3f, %.3f, %.3f]\n', targetEePos(1), targetEePos(2), targetEePos(3));
-        
+
         % SPECIAL HANDLING FOR BOOKS 1 & 3: Use enhanced placement
         if bookIndex == 1 || bookIndex == 3
             fprintf('Using enhanced placement for book %d\n', bookIndex);
