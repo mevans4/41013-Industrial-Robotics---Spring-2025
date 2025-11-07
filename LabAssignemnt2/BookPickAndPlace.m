@@ -27,24 +27,13 @@ function BookPickAndPlace(robot, bookManager, gui)
     bookCount = 1;
     % Main loop to process all books sequentially
     while bookManager.currentBookIndex <= totalBooks
-        % Check if demo was cancelled or paused
+        % Check if demo was paused (for E-Stop)
         if hasGUI
-            if gui.demoCancelled
-                fprintf('⚠ Book sorting cancelled by user\n');
-                break;
-            end
-
             % Wait while paused
-            while gui.demoPaused && ~gui.demoCancelled
+            while gui.demoPaused
                 fprintf('⏸ Book sorting paused - waiting for resume...\n');
                 pause(0.5);
                 drawnow();
-            end
-
-            % Check again after pause
-            if gui.demoCancelled
-                fprintf('⚠ Book sorting cancelled by user\n');
-                break;
             end
         end
 
@@ -279,24 +268,12 @@ function success = moveRobotWithEnhancedPlacement(robot, targetPosition, bookHan
     qTraj = jtraj(qCurrent, qTarget, steps);
 
     for i = 1:steps
-        % Check for cancellation or pause
+        % Check for pause (E-Stop)
         if hasGUI
-            if gui.demoCancelled
-                fprintf('  Enhanced placement cancelled\n');
-                success = false;
-                return;
-            end
-
             % Wait while paused
-            while gui.demoPaused && ~gui.demoCancelled
+            while gui.demoPaused
                 pause(0.1);
                 drawnow();
-            end
-
-            if gui.demoCancelled
-                fprintf('  Enhanced placement cancelled after pause\n');
-                success = false;
-                return;
             end
         end
 
@@ -377,24 +354,12 @@ function success = moveRobotWithBookPerfectPlacement(robot, targetPosition, book
     
     % Execute trajectory with book rotation
     for i = 1:steps
-        % Check for cancellation or pause
+        % Check for pause (E-Stop)
         if hasGUI
-            if gui.demoCancelled
-                fprintf('  Book movement cancelled\n');
-                success = false;
-                return;
-            end
-
             % Wait while paused
-            while gui.demoPaused && ~gui.demoCancelled
+            while gui.demoPaused
                 pause(0.1);
                 drawnow();
-            end
-
-            if gui.demoCancelled
-                fprintf('  Book movement cancelled after pause\n');
-                success = false;
-                return;
             end
         end
 
@@ -486,24 +451,12 @@ function success = moveRobotWithConfig(robot, targetPosition, referenceConfig, g
     qTraj = jtraj(qCurrent, qTarget, steps);
 
     for i = 1:steps
-        % Check for cancellation or pause
+        % Check for pause (E-Stop)
         if hasGUI
-            if gui.demoCancelled
-                fprintf('  Movement cancelled\n');
-                success = false;
-                return;
-            end
-
             % Wait while paused
-            while gui.demoPaused && ~gui.demoCancelled
+            while gui.demoPaused
                 pause(0.1);
                 drawnow();
-            end
-
-            if gui.demoCancelled
-                fprintf('  Movement cancelled after pause\n');
-                success = false;
-                return;
             end
         end
 
