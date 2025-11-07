@@ -1,9 +1,13 @@
-function AuboPickAndPlace(robot, bookManager, bookIndices)
+function AuboPickAndPlace(robot, bookManager, bookIndices, gui)
     % AuboPickAndPlace - AUBO i5 Book Stacking System
     % Picks books from targetPos locations and places them at finalPos locations
     % bookIndices: Specific books for AUBO to handle (e.g., [5, 6] for blue books)
+    % gui: Optional GUI reference for E-Stop and cancellation checking
 
     fprintf('Starting AUBO i5 book stacking operation...\n');
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 4) && ~isempty(gui);
 
     % Get optimized home position for the robot
     homeQ = getAuboHomePosition(robot);
@@ -34,6 +38,27 @@ function AuboPickAndPlace(robot, bookManager, bookIndices)
 
     % Process specific book indices
     for i = 1:length(bookIndices)
+        % Check if demo was cancelled or paused
+        if hasGUI
+            if gui.demoCancelled
+                fprintf('⚠ AUBO operation cancelled by user\n');
+                break;
+            end
+
+            % Wait while paused
+            while gui.demoPaused && ~gui.demoCancelled
+                fprintf('⏸ AUBO operation paused - waiting for resume...\n');
+                pause(0.5);
+                drawnow();
+            end
+
+            % Check again after pause
+            if gui.demoCancelled
+                fprintf('⚠ AUBO operation cancelled by user\n');
+                break;
+            end
+        end
+
         bookIndex = bookIndices(i);
         fprintf('\n=== AUBO Processing Book %d/%d ===\n', i, length(bookIndices));
 
@@ -68,7 +93,7 @@ function AuboPickAndPlace(robot, bookManager, bookIndices)
 
         % Execute pick and place operation
         isFirstBook = (i == 1);
-        success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSurfacePos, placePos, homeQ, i, bookIndex, successfulIKSolutions);
+        success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSurfacePos, placePos, homeQ, i, bookIndex, successfulIKSolutions, gui);
 
         if success
             % Store successful IK solution for future use
@@ -90,10 +115,25 @@ function AuboPickAndPlace(robot, bookManager, bookIndices)
     fprintf('\n=== AUBO Operation Complete: Processed %d books ===\n', length(bookIndices));
 end
 
-function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSurfacePos, targetPos, homeQ, sequenceIndex, bookIndex, successfulIKSolutions)
-    % Execute pick and place with improved IK handling
+function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSurfacePos, targetPos, homeQ, sequenceIndex, bookIndex, successfulIKSolutions, gui)
+    % Execute pick and place with improved IK handling and collision detection
     pickConfig = homeQ;
     isFirstBook = (sequenceIndex == 1);
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 10) && ~isempty(gui);
+
+    % COLLISION DETECTION: Check for collisions before each major movement
+    fprintf('  Checking for collisions in workspace...\n');
+    if ismethod(robot, 'CheckCollision')
+        collisionDetected = robot.CheckCollision();
+        if collisionDetected
+            fprintf('  ⚠ WARNING: Collision detected in workspace!\n');
+            fprintf('  ⚠ AUBO will proceed with caution\n');
+        else
+            fprintf('  ✓ No collisions detected\n');
+        end
+    end
 
     % === APPROACH PHASE: Move above the pick position ===
     approachHeight = 0.12;
@@ -106,7 +146,7 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
     end
 
     fprintf('Moving to approach position: [%.3f, %.3f, %.3f]\n', approachPos(1), approachPos(2), approachPos(3));
-    if ~moveAuboToPoint(robot, approachPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveAuboToPoint(robot, approachPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to move to approach position for book %d\n', bookIndex);
         success = false;
         return;
@@ -124,7 +164,7 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
     end
 
     fprintf('Moving to pick position: [%.3f, %.3f, %.3f]\n', pickPos(1), pickPos(2), pickPos(3));
-    if ~moveAuboToPoint(robot, pickPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveAuboToPoint(robot, pickPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to move to pick position for book %d\n', bookIndex);
         success = false;
         return;
@@ -160,7 +200,7 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
     end
 
     fprintf('Lifting book to: [%.3f, %.3f, %.3f]\n', liftPos(1), liftPos(2), liftPos(3));
-    if ~moveAuboWithBook(robot, liftPos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveAuboWithBook(robot, liftPos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to lift book %d\n', bookIndex);
         success = false;
         return;
@@ -181,7 +221,7 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
     end
 
     fprintf('Moving to placement approach: [%.3f, %.3f, %.3f]\n', targetApproach(1), targetApproach(2), targetApproach(3));
-    if ~moveAuboWithBook(robot, targetApproach, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveAuboWithBook(robot, targetApproach, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to move to placement approach for book %d\n', bookIndex);
         success = false;
         return;
@@ -199,7 +239,7 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
     end
 
     fprintf('Placing book at final position: [%.3f, %.3f, %.3f]\n', targetEePos(1), targetEePos(2), targetEePos(3));
-    if ~moveAuboWithBook(robot, targetEePos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
+    if ~moveAuboWithBook(robot, targetEePos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
         fprintf('ERROR: Failed to place book %d\n', bookIndex);
         success = false;
         return;
@@ -230,7 +270,7 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
 
     % === RETREAT PHASE: Move away after placement ===
     fprintf('Retreating to: [%.3f, %.3f, %.3f]\n', targetApproach(1), targetApproach(2), targetApproach(3));
-    if ~moveAuboToPoint(robot, targetApproach, pickConfig, false, bookIndex, successfulIKSolutions)
+    if ~moveAuboToPoint(robot, targetApproach, pickConfig, false, bookIndex, successfulIKSolutions, gui)
         fprintf('WARNING: Failed to retreat after placing book %d\n', bookIndex);
     end
     pause(0.2);
@@ -240,8 +280,11 @@ end
 
 %% MOVEMENT FUNCTIONS WITH IMPROVED IK HANDLING
 
-function success = moveAuboToPoint(robot, targetPosition, referenceConfig, isFirstBook, bookIndex, successfulIKSolutions)
+function success = moveAuboToPoint(robot, targetPosition, referenceConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
     steps = 25;
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 7) && ~isempty(gui);
 
     targetTransform = transl(targetPosition) * trotx(pi) * trotz(-pi/2);
 
@@ -274,6 +317,27 @@ function success = moveAuboToPoint(robot, targetPosition, referenceConfig, isFir
     qTraj = jtraj(qCurrent, qTarget, steps);
 
     for i = 1:steps
+        % Check for cancellation or pause
+        if hasGUI
+            if gui.demoCancelled
+                fprintf('  AUBO movement cancelled\n');
+                success = false;
+                return;
+            end
+
+            % Wait while paused
+            while gui.demoPaused && ~gui.demoCancelled
+                pause(0.1);
+                drawnow();
+            end
+
+            if gui.demoCancelled
+                fprintf('  AUBO movement cancelled after pause\n');
+                success = false;
+                return;
+            end
+        end
+
         robot.model.animate(qTraj(i, :));
         drawnow();
         pause(0.02);
@@ -282,8 +346,11 @@ function success = moveAuboToPoint(robot, targetPosition, referenceConfig, isFir
     success = true;
 end
 
-function success = moveAuboWithBook(robot, targetPosition, bookData, referenceConfig, isFirstBook, bookIndex, successfulIKSolutions)
+function success = moveAuboWithBook(robot, targetPosition, bookData, referenceConfig, isFirstBook, bookIndex, successfulIKSolutions, gui)
     steps = 25;
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 8) && ~isempty(gui);
 
     targetTransform = transl(targetPosition) * trotx(pi) * trotz(-pi/2);
 
@@ -322,6 +389,27 @@ function success = moveAuboWithBook(robot, targetPosition, bookData, referenceCo
     end
 
     for i = 1:steps
+        % Check for cancellation or pause
+        if hasGUI
+            if gui.demoCancelled
+                fprintf('  AUBO book movement cancelled\n');
+                success = false;
+                return;
+            end
+
+            % Wait while paused
+            while gui.demoPaused && ~gui.demoCancelled
+                pause(0.1);
+                drawnow();
+            end
+
+            if gui.demoCancelled
+                fprintf('  AUBO book movement cancelled after pause\n');
+                success = false;
+                return;
+            end
+        end
+
         q = qTraj(i, :);
         robot.model.animate(q);
 

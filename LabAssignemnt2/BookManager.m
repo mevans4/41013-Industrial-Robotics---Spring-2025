@@ -36,12 +36,51 @@ classdef BookManager < handle
                     continue;
                 end
 
+                % Calculate object properties
                 objPos = mean(verts, 1);
+                minVerts = min(verts);
+                maxVerts = max(verts);
+                objSize = maxVerts - minVerts;
+
+                % IMPROVED FILTERING: Books have specific characteristics
+                % 1. Position filter - near X = -1.75
                 isInBookArea = abs(objPos(1) - (-1.75)) < 0.3;
 
-                if isInBookArea
-                    minVerts = min(verts);
-                    maxVerts = max(verts);
+                % 2. Size filter - books are roughly 0.2m x 0.15m x 0.079m
+                %    Allow some tolerance
+                sizeMatches = (objSize(1) > 0.1 && objSize(1) < 0.35) && ...  % Length
+                              (objSize(2) > 0.08 && objSize(2) < 0.25) && ...  % Width
+                              (objSize(3) > 0.05 && objSize(3) < 0.12);        % Height
+
+                % 3. Vertex count filter - books typically have 8-24 vertices
+                %    Large objects like fences/walls have many more
+                numVertices = size(verts, 1);
+                vertexCountOK = (numVertices >= 8 && numVertices <= 50);
+
+                % 4. Height filter - books are close to table surface
+                isLowEnough = objPos(3) < 0.5;  % Books stack max ~0.25m high
+
+                % 5. Color filter - books should be colored (not gray/white)
+                try
+                    faceColor = get(obj, 'FaceColor');
+                    if isnumeric(faceColor) && length(faceColor) == 3
+                        % Check if it's one of our book colors (red, green, blue)
+                        % or at least not gray/white
+                        isRed = (faceColor(1) > 0.8 && faceColor(2) < 0.2 && faceColor(3) < 0.2);
+                        isGreen = (faceColor(1) < 0.2 && faceColor(2) > 0.8 && faceColor(3) < 0.2);
+                        isBlue = (faceColor(1) < 0.2 && faceColor(2) < 0.2 && faceColor(3) > 0.8);
+                        hasBookColor = isRed || isGreen || isBlue;
+                    else
+                        hasBookColor = false;
+                    end
+                catch
+                    hasBookColor = false;
+                end
+
+                % Combine all filters - ALL must be true
+                isBook = isInBookArea && sizeMatches && vertexCountOK && isLowEnough && hasBookColor;
+
+                if isBook
                     topSurfacePos = [objPos(1), objPos(2), maxVerts(3)];
 
                     actualBooks{end+1} = struct(...
@@ -49,10 +88,13 @@ classdef BookManager < handle
                         'position', objPos, ...
                         'originalVerts', verts, ...
                         'topSurfacePosition', topSurfacePos);
+
+                    fprintf('  Found book at [%.3f, %.3f, %.3f] size=[%.3f, %.3f, %.3f] verts=%d\n', ...
+                        objPos(1), objPos(2), objPos(3), objSize(1), objSize(2), objSize(3), numVertices);
                 end
             end
 
-            fprintf('Found %d books\n', length(actualBooks));
+            fprintf('Found %d books (filtered from %d total patch objects)\n', length(actualBooks), length(allObjs));
             self.matchBooksToPositions(actualBooks);
 
             fprintf('Book order:\n');
@@ -231,10 +273,13 @@ classdef BookManager < handle
         end
 
         function finalPos = getAuboFinalPosition(self, bookIndex)
+            % FIXED: Changed from [1.5, 0, z] to [0.85, 0, z] to be within AUBO workspace
+            % Original position of X=1.5 was beyond the robot's reach
+            % New position at X=0.85 is well within workspace and reachable
             if bookIndex == 5
-                finalPos = [1.5, 0, 0.079];
+                finalPos = [0.85, 0, 0.079];
             else
-                finalPos = [1.5, 0, 0.079*2];
+                finalPos = [0.85, 0, 0.079*2];
             end
         end
     end
