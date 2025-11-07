@@ -78,8 +78,8 @@ classdef RobotGUI < handle
                 'FontWeight', 'bold', 'FontSize', 12, ...
                 'BackgroundColor', [0.98 0.98 0.98]);
 
-            grid = uigridlayout(leftPanel, [10 1]);
-            grid.RowHeight = {'fit', 'fit', '1x', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x'};
+            grid = uigridlayout(leftPanel, [11 1]);
+            grid.RowHeight = {'fit', 'fit', '1x', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x'};
 
             % E-STOP BUTTON (Large, Red)
             self.buttons.estop = uibutton(grid, 'push', ...
@@ -150,6 +150,14 @@ classdef RobotGUI < handle
                 'BackgroundColor', [0.3 0.5 0.8], ...
                 'FontColor', 'white', ...
                 'ButtonPushedFcn', @(btn,event) self.OnResetSystem());
+
+            % START DEMO BUTTON
+            self.buttons.startDemo = uibutton(grid, 'push', ...
+                'Text', '▶ START BOOK DEMO', ...
+                'FontSize', 14, 'FontWeight', 'bold', ...
+                'BackgroundColor', [0.2 0.7 0.3], ...
+                'FontColor', 'white', ...
+                'ButtonPushedFcn', @(btn,event) self.OnStartDemo());
         end
 
         %% Center Panel: Joint Control
@@ -608,6 +616,156 @@ classdef RobotGUI < handle
         function operational = IsOperational(self)
             operational = self.eStopManager.IsOperational() && ...
                          ~self.sensorSimulator.IsTriggered();
+        end
+
+        %% Callback: Start Demo
+        function OnStartDemo(self)
+            fprintf('\n════════════════════════════════════════════════════════\n');
+            fprintf('   STARTING AUTOMATED BOOK SORTING DEMO\n');
+            fprintf('════════════════════════════════════════════════════════\n\n');
+
+            % Check if system is operational
+            if ~self.IsOperational()
+                fprintf('ERROR: Cannot start demo - System not operational\n');
+                if ~self.eStopManager.IsOperational()
+                    fprintf('  - E-Stop is active. Press RESUME to continue.\n');
+                end
+                if self.sensorSimulator.IsTriggered()
+                    fprintf('  - Safety sensor is triggered. Clear sensor to continue.\n');
+                end
+                return;
+            end
+
+            % Disable demo button during operation
+            self.buttons.startDemo.Enable = 'off';
+            self.buttons.startDemo.Text = '⏳ DEMO RUNNING...';
+
+            try
+                % Run automated sorting
+                self.RunAutomatedSorting();
+
+                fprintf('\n════════════════════════════════════════════════════════\n');
+                fprintf('   DEMO COMPLETED SUCCESSFULLY!\n');
+                fprintf('════════════════════════════════════════════════════════\n\n');
+
+                self.buttons.startDemo.Text = '✓ DEMO COMPLETE';
+            catch ME
+                fprintf('\nERROR during demo: %s\n', ME.message);
+                fprintf('Stack trace:\n');
+                for i = 1:length(ME.stack)
+                    fprintf('  %s (line %d)\n', ME.stack(i).name, ME.stack(i).line);
+                end
+                self.buttons.startDemo.Text = '❌ DEMO FAILED';
+            end
+
+            % Re-enable demo button
+            pause(2);
+            self.buttons.startDemo.Enable = 'on';
+            self.buttons.startDemo.Text = '▶ START BOOK DEMO';
+        end
+
+        %% Run Automated Sorting
+        function RunAutomatedSorting(self)
+            fprintf('E-Stop and sensor monitoring is ACTIVE during operation\n');
+            fprintf('Press E-Stop button in GUI to halt at any time\n\n');
+
+            % Phase 1: UR3 Sorting
+            fprintf('════ PHASE 1: UR3 SORTING BOOKS ════\n');
+            if self.CheckSafety()
+                self.BookPickAndPlaceWithSafety(self.robots{1});
+            else
+                return;
+            end
+
+            % Phase 2: Motoman Red Books
+            fprintf('\n════ PHASE 2: MOTOMAN PICKING RED BOOKS ════\n');
+            if self.CheckSafety()
+                self.MotomanPickAndPlaceWithSafety(self.robots{2}, [4, 3]);
+            else
+                return;
+            end
+
+            % Phase 3: KUKA Green Books
+            fprintf('\n════ PHASE 3: KUKA PICKING GREEN BOOKS ════\n');
+            if self.CheckSafety()
+                self.KukaPickAndPlaceWithSafety(self.robots{3}, [2, 1]);
+            else
+                return;
+            end
+
+            % Phase 4: AUBO Blue Books
+            fprintf('\n════ PHASE 4: AUBO PICKING BLUE BOOKS ════\n');
+            if self.CheckSafety()
+                self.AuboPickAndPlaceWithSafety(self.robots{4}, [6, 5]);
+            else
+                return;
+            end
+        end
+
+        %% Safety Check Function
+        function safe = CheckSafety(self)
+            safe = self.IsOperational();
+
+            if ~safe
+                if ~self.eStopManager.IsOperational()
+                    fprintf('⚠ OPERATION HALTED: E-Stop is active\n');
+                    fprintf('⚠ Disengage E-Stop and press RESUME to continue\n');
+                elseif self.sensorSimulator.IsTriggered()
+                    fprintf('⚠ OPERATION HALTED: Safety sensor triggered\n');
+                    fprintf('⚠ Clear sensor to continue\n');
+                end
+            end
+        end
+
+        %% Safety-Wrapped Pick and Place Functions
+        function BookPickAndPlaceWithSafety(self, robot)
+            % Wrapper that checks e-stop before calling BookPickAndPlace
+            if ~self.CheckSafety()
+                fprintf('Book sorting interrupted by safety system\n');
+                return;
+            end
+
+            % Call original function
+            BookPickAndPlace(robot, self.bookManager);
+
+            % Update books status
+            self.labels.booksStatus.Text = '○ Books: 6/6 Sorted (UR3)';
+        end
+
+        function MotomanPickAndPlaceWithSafety(self, robot, bookIndices)
+            if ~self.CheckSafety()
+                fprintf('Motoman operation interrupted by safety system\n');
+                return;
+            end
+
+            MotomanPickAndPlace(robot, self.bookManager, bookIndices);
+
+            % Update books status
+            self.labels.booksStatus.Text = '○ Books: Red Books Stacked';
+        end
+
+        function KukaPickAndPlaceWithSafety(self, robot, bookIndices)
+            if ~self.CheckSafety()
+                fprintf('Kuka operation interrupted by safety system\n');
+                return;
+            end
+
+            KukaPickAndPlace(robot, self.bookManager, bookIndices);
+
+            % Update books status
+            self.labels.booksStatus.Text = '○ Books: Green Books Stacked';
+        end
+
+        function AuboPickAndPlaceWithSafety(self, robot, bookIndices)
+            if ~self.CheckSafety()
+                fprintf('Aubo operation interrupted by safety system\n');
+                return;
+            end
+
+            AuboPickAndPlace(robot, self.bookManager, bookIndices);
+
+            % Update books status
+            self.labels.booksStatus.Text = '○ Books: All Complete!';
         end
     end
 end
