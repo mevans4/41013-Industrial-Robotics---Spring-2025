@@ -98,6 +98,13 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
     % === APPROACH PHASE: Move above the pick position ===
     approachHeight = 0.12;
     approachPos = [bookSurfacePos(1), bookSurfacePos(2), bookSurfacePos(3) + approachHeight];
+
+    % SAFETY: Validate approach position is above table
+    [approachPos, wasModified] = SafetyUtils.validateZPosition(approachPos);
+    if wasModified
+        fprintf('*** SAFETY: Approach position corrected to prevent table collision\n');
+    end
+
     fprintf('Moving to approach position: [%.3f, %.3f, %.3f]\n', approachPos(1), approachPos(2), approachPos(3));
     if ~moveAuboToPoint(robot, approachPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
         fprintf('ERROR: Failed to move to approach position for book %d\n', bookIndex);
@@ -109,6 +116,13 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
     % === PICK PHASE: Move down to grasp the book ===
     pickHeight = 0.005;
     pickPos = [bookSurfacePos(1), bookSurfacePos(2), bookSurfacePos(3) + pickHeight];
+
+    % SAFETY: Validate pick position is above table
+    [pickPos, wasModified] = SafetyUtils.validateZPosition(pickPos);
+    if wasModified
+        fprintf('*** SAFETY: Pick position corrected to prevent table collision\n');
+    end
+
     fprintf('Moving to pick position: [%.3f, %.3f, %.3f]\n', pickPos(1), pickPos(2), pickPos(3));
     if ~moveAuboToPoint(robot, pickPos, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
         fprintf('ERROR: Failed to move to pick position for book %d\n', bookIndex);
@@ -138,6 +152,13 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
     % === LIFT PHASE: Raise the book after grasping ===
     liftHeight = 0.15;
     liftPos = [bookSurfacePos(1), bookSurfacePos(2), bookSurfacePos(3) + liftHeight];
+
+    % SAFETY: Validate lift position is above table
+    [liftPos, wasModified] = SafetyUtils.validateZPosition(liftPos);
+    if wasModified
+        fprintf('*** SAFETY: Lift position corrected to prevent table collision\n');
+    end
+
     fprintf('Lifting book to: [%.3f, %.3f, %.3f]\n', liftPos(1), liftPos(2), liftPos(3));
     if ~moveAuboWithBook(robot, liftPos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
         fprintf('ERROR: Failed to lift book %d\n', bookIndex);
@@ -152,6 +173,13 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
 
     targetApproachHeight = 0.12;
     targetApproach = [targetEePos(1), targetEePos(2), targetEePos(3) + targetApproachHeight];
+
+    % SAFETY: Validate approach position is above table
+    [targetApproach, wasModified] = SafetyUtils.validateZPosition(targetApproach);
+    if wasModified
+        fprintf('*** SAFETY: Target approach position corrected to prevent table collision\n');
+    end
+
     fprintf('Moving to placement approach: [%.3f, %.3f, %.3f]\n', targetApproach(1), targetApproach(2), targetApproach(3));
     if ~moveAuboWithBook(robot, targetApproach, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
         fprintf('ERROR: Failed to move to placement approach for book %d\n', bookIndex);
@@ -161,6 +189,15 @@ function success = executeAuboPickPlace(robot, bookHandle, originalVerts, bookSu
     pause(0.2);
 
     % === PLACE PHASE: Lower the book to final position ===
+    % SAFETY: Validate placement position is above table
+    [targetEePos, wasModified] = SafetyUtils.validateZPosition(targetEePos);
+    if wasModified
+        fprintf('*** SAFETY: Placement position corrected to prevent table collision\n');
+        % Update bookData target position if modified
+        bookData.targetPos = targetPos;
+        bookData.targetPos(3) = max(bookData.targetPos(3), SafetyUtils.MIN_Z_HEIGHT);
+    end
+
     fprintf('Placing book at final position: [%.3f, %.3f, %.3f]\n', targetEePos(1), targetEePos(2), targetEePos(3));
     if ~moveAuboWithBook(robot, targetEePos, bookData, pickConfig, isFirstBook, bookIndex, successfulIKSolutions)
         fprintf('ERROR: Failed to place book %d\n', bookIndex);
