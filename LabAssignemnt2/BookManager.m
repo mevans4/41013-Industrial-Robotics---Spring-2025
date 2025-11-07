@@ -137,19 +137,22 @@ classdef BookManager < handle
         end
 
         function targetPos = getTargetPosition(self, ~)
+            % Book centers for proper stacking (book height = 0.079m)
+            % Bottom layer center: 0.079/2 = 0.0395
+            % Second layer center: 0.079 + 0.079/2 = 0.1185
             switch self.booksPlaced
                 case 0
-                    targetPos = [-0.5, -0.25*2.1, 0.079 - 0.05];
+                    targetPos = [-0.5, -0.25*2.1, 0.0395];
                 case 1
-                    targetPos = [-0.5, -0.25*2.1, 0.079*2 - 0.05];
+                    targetPos = [-0.5, -0.25*2.1, 0.1185];
                 case 2
-                    targetPos = [-0.5, 0.25*2.1, 0.079 - 0.05];
+                    targetPos = [-0.5, 0.25*2.1, 0.0395];
                 case 3
-                    targetPos = [-0.5, 0.25*2.1, 0.079*2 - 0.05];
+                    targetPos = [-0.5, 0.25*2.1, 0.1185];
                 case 4
-                    targetPos = [0, 0, 0.079 - 0.05];
+                    targetPos = [0, 0, 0.0395];
                 case 5
-                    targetPos = [0, 0, 0.079*2 - 0.05];
+                    targetPos = [0, 0, 0.1185];
             end
 
             self.booksPlaced = self.booksPlaced + 1;
@@ -178,63 +181,69 @@ classdef BookManager < handle
                 end
             end
         end
-% Motoman books
+% Motoman books (picks books 3, 4 from center-left stack)
         function targetPos = getMotomanTargetPosition(self, bookIndex)
+            % Pick from where UR3 placed them (book centers)
             switch bookIndex
                 case 3
-                    targetPos = [-0.5, 0.525, 0+0.005];
+                    targetPos = [-0.5, 0.525, 0.0395];  % Bottom layer
                 case 4
-                    targetPos = [-0.5, 0.525, 0.079+0.005];
+                    targetPos = [-0.5, 0.525, 0.1185];  % Second layer
                 otherwise
                     targetPos = [];
             end
         end
 
         function finalPos = getMotomanFinalPosition(self, bookIndex)
+            % Place at final positions (book centers)
             if bookIndex == 4
-                finalPos = [0, 1.05, 0.079];
+                finalPos = [0, 1.05, 0.0395];   % Bottom layer
             else
-                finalPos = [0, 1.05, 0.079*2];
+                finalPos = [0, 1.05, 0.1185];   % Second layer
             end
         end
 
-        % KUKA books (green books - indices 1 and 2)
+        % KUKA books (picks books 1, 2 from left stack)
         function targetPos = getKukaTargetPosition(self, bookIndex)
+            % Pick from where UR3 placed them (book centers)
             switch bookIndex
                 case 1
-                    targetPos = [-0.5, -0.25*2.1, 0.079*1+0.005];
+                    targetPos = [-0.5, -0.25*2.1, 0.0395];  % Bottom layer
                 case 2
-                    targetPos = [-0.5, -0.25*2.1, 0.079*2+0.005];
+                    targetPos = [-0.5, -0.25*2.1, 0.1185];  % Second layer
                 otherwise
                     targetPos = [];
             end
         end
 
         function finalPos = getKukaFinalPosition(self, bookIndex)
+            % Place at final positions (book centers)
             if bookIndex == 1
-                finalPos = [0, -1.05, 0.079];
+                finalPos = [0, -1.05, 0.0395];   % Bottom layer
             else
-                finalPos = [0, -1.05, 0.079*2];
+                finalPos = [0, -1.05, 0.1185];   % Second layer
             end
         end
 
-        % AUBO books (blue books - indices 5 and 6, but we'll use positions from center stack)
+        % AUBO books (picks books 5, 6 from center stack)
         function targetPos = getAuboTargetPosition(self, bookIndex)
+            % Pick from where UR3 placed them (book centers)
             switch bookIndex
                 case 5
-                    targetPos = [0, 0, 0.079*1+0.005];
+                    targetPos = [0, 0, 0.0395];   % Bottom layer
                 case 6
-                    targetPos = [0, 0, 0.079*2+0.005];
+                    targetPos = [0, 0, 0.1185];   % Second layer
                 otherwise
                     targetPos = [];
             end
         end
 
         function finalPos = getAuboFinalPosition(self, bookIndex)
+            % Place at final positions (book centers)
             if bookIndex == 5
-                finalPos = [1.5, 0, 0.079];
+                finalPos = [1.5, 0, 0.0395];   % Bottom layer
             else
-                finalPos = [1.5, 0, 0.079*2];
+                finalPos = [1.5, 0, 0.1185];   % Second layer
             end
         end
     end
