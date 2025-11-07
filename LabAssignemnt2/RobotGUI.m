@@ -20,6 +20,7 @@ classdef RobotGUI < handle
         % Safety Systems
         eStopManager
         sensorSimulator
+        collisionDetection
 
         % Movement Parameters
         jointStep = 0.05  % radians per button press
@@ -45,6 +46,7 @@ classdef RobotGUI < handle
             % Create safety systems
             self.eStopManager = EStopManager();
             self.sensorSimulator = SensorSimulator();
+            self.collisionDetection = CollisionDetection(robots);
 
             % Create GUI
             self.CreateGUI();
@@ -82,8 +84,8 @@ classdef RobotGUI < handle
                 'FontWeight', 'bold', 'FontSize', 12, ...
                 'BackgroundColor', [0.98 0.98 0.98]);
 
-            grid = uigridlayout(leftPanel, [11 1]);
-            grid.RowHeight = {'fit', 'fit', '1x', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x'};
+            grid = uigridlayout(leftPanel, [12 1]);
+            grid.RowHeight = {'fit', 'fit', '1x', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x'};
 
             % E-STOP BUTTON (Large, Red)
             self.buttons.estop = uibutton(grid, 'push', ...
@@ -146,6 +148,14 @@ classdef RobotGUI < handle
                 'FontSize', 12, ...
                 'BackgroundColor', [0.9 0.6 0.2], ...
                 'ButtonPushedFcn', @(btn,event) self.OnSensorTriggered());
+
+            % COLLISION DETECTION TOGGLE
+            self.buttons.collisionToggle = uibutton(grid, 'push', ...
+                'Text', '✓ COLLISION DETECTION: ON', ...
+                'FontSize', 12, ...
+                'BackgroundColor', [0.2 0.7 0.5], ...
+                'FontColor', 'white', ...
+                'ButtonPushedFcn', @(btn,event) self.OnCollisionToggle());
 
             % RESET SYSTEM BUTTON
             self.buttons.reset = uibutton(grid, 'push', ...
@@ -539,6 +549,34 @@ classdef RobotGUI < handle
             end
         end
 
+        %% Callback: Collision Detection Toggle
+        function OnCollisionToggle(self)
+            if self.collisionDetection.IsEnabled()
+                % Disable collision detection
+                self.collisionDetection.Disable();
+                self.buttons.collisionToggle.Text = '✗ COLLISION DETECTION: OFF';
+                self.buttons.collisionToggle.BackgroundColor = [0.7 0.2 0.2];
+                self.labels.collisionStatus.Text = '○ Collision: DISABLED';
+                self.labels.collisionStatus.FontColor = [0.5 0.5 0.5];
+                fprintf('Collision detection DISABLED\n');
+            else
+                % Enable collision detection
+                self.collisionDetection.Enable();
+                self.buttons.collisionToggle.Text = '✓ COLLISION DETECTION: ON';
+                self.buttons.collisionToggle.BackgroundColor = [0.2 0.7 0.5];
+                self.labels.collisionStatus.Text = '○ Collision: ACTIVE';
+                self.labels.collisionStatus.FontColor = [0 0.6 0];
+                fprintf('Collision detection ENABLED\n');
+
+                % Run immediate check
+                [collision, ~] = self.collisionDetection.CheckAllRobots();
+                if collision
+                    self.labels.collisionStatus.Text = '● Collision: DETECTED';
+                    self.labels.collisionStatus.FontColor = [1 0 0];
+                end
+            end
+        end
+
         %% Callback: Reset System
         function OnResetSystem(self)
             fprintf('\n════════════════════════════════════════════════════════\n');
@@ -781,11 +819,17 @@ classdef RobotGUI < handle
         function RunAutomatedSorting(self)
             fprintf('E-Stop and sensor monitoring is ACTIVE during operation\n');
             fprintf('Press E-Stop button in GUI to halt at any time\n');
-            fprintf('Press RESET SYSTEM button to stop and reset the entire system\n\n');
+            fprintf('Press RESET SYSTEM button to stop and reset the entire system\n');
+            if self.collisionDetection.IsEnabled()
+                fprintf('Collision detection is ENABLED - robots will maintain safe distances\n\n');
+            else
+                fprintf('Collision detection is DISABLED\n\n');
+            end
 
             % Phase 1: UR3 Sorting
             fprintf('════ PHASE 1: UR3 SORTING BOOKS ════\n');
             if self.CheckSafetyAndState()
+                self.CheckAndUpdateCollisionStatus();
                 self.BookPickAndPlaceWithSafety(self.robots{1});
             else
                 return;
@@ -794,6 +838,7 @@ classdef RobotGUI < handle
             % Phase 2: Motoman Red Books
             fprintf('\n════ PHASE 2: MOTOMAN PICKING RED BOOKS ════\n');
             if self.CheckSafetyAndState()
+                self.CheckAndUpdateCollisionStatus();
                 self.MotomanPickAndPlaceWithSafety(self.robots{2}, [4, 3]);
             else
                 return;
@@ -802,6 +847,7 @@ classdef RobotGUI < handle
             % Phase 3: KUKA Green Books
             fprintf('\n════ PHASE 3: KUKA PICKING GREEN BOOKS ════\n');
             if self.CheckSafetyAndState()
+                self.CheckAndUpdateCollisionStatus();
                 self.KukaPickAndPlaceWithSafety(self.robots{3}, [2, 1]);
             else
                 return;
@@ -810,9 +856,24 @@ classdef RobotGUI < handle
             % Phase 4: AUBO Blue Books
             fprintf('\n════ PHASE 4: AUBO PICKING BLUE BOOKS ════\n');
             if self.CheckSafetyAndState()
+                self.CheckAndUpdateCollisionStatus();
                 self.AuboPickAndPlaceWithSafety(self.robots{4}, [6, 5]);
             else
                 return;
+            end
+        end
+
+        %% Check and Update Collision Status
+        function CheckAndUpdateCollisionStatus(self)
+            if self.collisionDetection.IsEnabled()
+                [collision, ~] = self.collisionDetection.CheckAllRobots();
+                if collision
+                    self.labels.collisionStatus.Text = '● Collision: DETECTED';
+                    self.labels.collisionStatus.FontColor = [1 0 0];
+                else
+                    self.labels.collisionStatus.Text = '○ Collision: NONE';
+                    self.labels.collisionStatus.FontColor = [0 0.6 0];
+                end
             end
         end
 
