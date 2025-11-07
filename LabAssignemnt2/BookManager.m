@@ -5,14 +5,12 @@ classdef BookManager < handle
         currentBookIndex = 1;
         booksPlaced = 0;
 
-        hardcodedBooks = {
-            [-1.75,  0.2, 0.079*2, 3];
-            [-1.75, -0.2, 0.079*2, 3];
-            [-1.75,  0.2, 0.079*1, 2];
-            [-1.75, -0.2, 0.079*1, 2];
-            [-1.75,  0.2, 0.079*0, 1];
-            [-1.75, -0.2, 0.079*0, 1]
-            };
+        % Reference positions for validation (optional)
+        expectedBookArea = [-1.75, 0, 0];  % Approximate center of book starting area
+        searchRadius = 0.5;  % Search within this radius
+
+        % Visual debugging
+        debugMarkers = {};
     end
 
     methods
@@ -23,81 +21,189 @@ classdef BookManager < handle
         end
 
         function storeBookHandles(self)
-            fprintf('Setting up book positions...\n');
+            fprintf('\n═══════════════════════════════════════════════════\n');
+            fprintf('   DYNAMIC BOOK DETECTION SYSTEM\n');
+            fprintf('═══════════════════════════════════════════════════\n\n');
 
+            % Clear previous markers
+            self.clearDebugMarkers();
+
+            % Find all patch objects in scene
             allObjs = findobj('Type', 'patch');
             actualBooks = {};
 
+            fprintf('Scanning scene for books...\n');
             for i = 1:length(allObjs)
                 obj = allObjs(i);
                 verts = get(obj, 'Vertices');
+                faceColor = get(obj, 'FaceColor');
 
                 if isempty(verts)
                     continue;
                 end
 
+                % Calculate object properties
                 objPos = mean(verts, 1);
-                isInBookArea = abs(objPos(1) - (-1.75)) < 0.3;
+                minVerts = min(verts);
+                maxVerts = max(verts);
+                objectSize = maxVerts - minVerts;
 
-                if isInBookArea
-                    minVerts = min(verts);
-                    maxVerts = max(verts);
+                % Book detection criteria:
+                % 1. In expected book area
+                % 2. Reasonable book-like dimensions
+                % 3. Has a valid color
+                isInBookArea = norm(objPos - self.expectedBookArea) < self.searchRadius;
+                isBookSize = objectSize(1) < 0.2 && objectSize(2) < 0.2 && objectSize(3) < 0.15 && objectSize(3) > 0.02;
+                hasColor = isnumeric(faceColor) && length(faceColor) == 3;
+
+                if isInBookArea && isBookSize && hasColor
                     topSurfacePos = [objPos(1), objPos(2), maxVerts(3)];
 
-                    actualBooks{end+1} = struct(...
-                        'handle', obj, ...
-                        'position', objPos, ...
-                        'originalVerts', verts, ...
-                        'topSurfacePosition', topSurfacePos);
+                    % Detect color from face color
+                    colorIndex = self.detectColorFromRGB(faceColor);
+
+                    if colorIndex > 0  % Valid book color detected
+                        actualBooks{end+1} = struct(...
+                            'handle', obj, ...
+                            'position', objPos, ...
+                            'originalVerts', verts, ...
+                            'topSurfacePosition', topSurfacePos, ...
+                            'colorIndex', colorIndex, ...
+                            'faceColor', faceColor, ...
+                            'size', objectSize);
+
+                        fprintf('  ✓ Found %s book at [%.3f, %.3f, %.3f]\n', ...
+                            self.colorIndexToString(colorIndex), ...
+                            objPos(1), objPos(2), objPos(3));
+                    end
                 end
             end
 
-            fprintf('Found %d books\n', length(actualBooks));
-            self.matchBooksToPositions(actualBooks);
+            fprintf('\nDetected %d books total\n', length(actualBooks));
 
-            fprintf('Book order:\n');
+            if length(actualBooks) == 0
+                error('No books detected! Make sure BookSpawner has been run first.');
+            end
+
+            % Sort and store books
+            self.sortAndStoreBooks(actualBooks);
+
+            % Display final book order
+            fprintf('\n═══════════════════════════════════════════════════\n');
+            fprintf('FINAL BOOK PICKING ORDER:\n');
+            fprintf('═══════════════════════════════════════════════════\n');
             for i = 1:length(self.originalBookHandles)
                 bookInfo = self.originalBookHandles{i};
                 fprintf('  %d. %s book at [%.3f, %.3f, %.3f]\n', ...
-                    i, self.colorIndexToString(bookInfo.colorIndex), ...
+                    i, upper(self.colorIndexToString(bookInfo.colorIndex)), ...
                     bookInfo.position(1), bookInfo.position(2), bookInfo.position(3));
+            end
+            fprintf('═══════════════════════════════════════════════════\n\n');
+
+            % Add visual markers for debugging
+            self.addDebugMarkers();
+        end
+
+        function colorIndex = detectColorFromRGB(~, rgb)
+            % detectColorFromRGB - Automatically detect book color from RGB values
+            % Returns: 1=green, 2=blue, 3=red, 0=unknown
+
+            % Normalize RGB values
+            r = rgb(1);
+            g = rgb(2);
+            b = rgb(3);
+
+            % Color detection with tolerance
+            if g > 0.7 && r < 0.3 && b < 0.3
+                colorIndex = 1;  % Green
+            elseif b > 0.7 && r < 0.3 && g < 0.3
+                colorIndex = 2;  % Blue
+            elseif r > 0.7 && g < 0.3 && b < 0.3
+                colorIndex = 3;  % Red
+            else
+                colorIndex = 0;  % Unknown/other color
             end
         end
 
-        function matchBooksToPositions(self, actualBooks)
-            if length(actualBooks) ~= 6
-                fprintf('Warning: Expected 6 books, found %d\n', length(actualBooks));
+        function sortAndStoreBooks(self, actualBooks)
+            % Sort books by Z-position (height), then by Y-position
+            % This ensures consistent ordering regardless of detection order
 
-                for i = 1:min(length(actualBooks), 6)
-                    hardcoded = self.hardcodedBooks{i};
-                    actualBook = actualBooks{i};
+            if isempty(actualBooks)
+                return;
+            end
 
-                    bookInfo = struct(...
-                        'handle', actualBook.handle, ...
-                        'originalVerts', actualBook.originalVerts, ...
-                        'position', actualBook.position, ...
-                        'topSurfacePosition', actualBook.topSurfacePosition, ...
-                        'colorIndex', hardcoded(4), ...
-                        'height', hardcoded(3));
+            % Extract positions for sorting
+            numBooks = length(actualBooks);
+            positions = zeros(numBooks, 3);
+            for i = 1:numBooks
+                positions(i, :) = actualBooks{i}.position;
+            end
 
-                    self.originalBookHandles{end+1} = bookInfo;
+            % Sort by: 1) Z (height), 2) Y (front/back)
+            % This gives us bottom-to-top, front-to-back ordering
+            [~, sortIdx] = sortrows(positions, [3, 2]);
+
+            % Store sorted books
+            self.originalBookHandles = {};
+            for i = 1:numBooks
+                book = actualBooks{sortIdx(i)};
+
+                bookInfo = struct(...
+                    'handle', book.handle, ...
+                    'originalVerts', book.originalVerts, ...
+                    'position', book.position, ...
+                    'topSurfacePosition', book.topSurfacePosition, ...
+                    'colorIndex', book.colorIndex, ...
+                    'height', book.position(3));
+
+                self.originalBookHandles{end+1} = bookInfo;
+            end
+        end
+
+        function addDebugMarkers(self)
+            % Add visual markers at detected book positions
+            hold on;
+            for i = 1:length(self.originalBookHandles)
+                book = self.originalBookHandles{i};
+                pos = book.position;
+
+                % Create colored sphere at book position
+                [X, Y, Z] = sphere(10);
+                radius = 0.03;
+                X = X * radius + pos(1);
+                Y = Y * radius + pos(2);
+                Z = Z * radius + pos(3) + 0.1;  % Slightly above book
+
+                % Color based on book color
+                switch book.colorIndex
+                    case 1, markerColor = [0, 1, 0];  % Green
+                    case 2, markerColor = [0, 0, 1];  % Blue
+                    case 3, markerColor = [1, 0, 0];  % Red
+                    otherwise, markerColor = [0.5, 0.5, 0.5];  % Gray
                 end
-            else
-                for i = 1:6
-                    hardcoded = self.hardcodedBooks{i};
-                    actualBook = actualBooks{i};
 
-                    bookInfo = struct(...
-                        'handle', actualBook.handle, ...
-                        'originalVerts', actualBook.originalVerts, ...
-                        'position', [hardcoded(1), hardcoded(2), hardcoded(3)], ...
-                        'topSurfacePosition', [hardcoded(1), hardcoded(2), hardcoded(3) + 0.01], ...
-                        'colorIndex', hardcoded(4), ...
-                        'height', hardcoded(3));
+                marker = surf(X, Y, Z, 'FaceColor', markerColor, ...
+                    'EdgeColor', 'none', 'FaceAlpha', 0.5);
+                self.debugMarkers{end+1} = marker;
 
-                    self.originalBookHandles{end+1} = bookInfo;
+                % Add text label
+                textLabel = text(pos(1), pos(2), pos(3) + 0.15, ...
+                    sprintf('%d', i), 'FontSize', 14, 'FontWeight', 'bold', ...
+                    'Color', 'white', 'HorizontalAlignment', 'center', ...
+                    'BackgroundColor', markerColor, 'EdgeColor', 'black');
+                self.debugMarkers{end+1} = textLabel;
+            end
+        end
+
+        function clearDebugMarkers(self)
+            % Remove all debug markers from scene
+            for i = 1:length(self.debugMarkers)
+                if ishandle(self.debugMarkers{i}) && isvalid(self.debugMarkers{i})
+                    delete(self.debugMarkers{i});
                 end
             end
+            self.debugMarkers = {};
         end
 
         function colorStr = colorIndexToString(~, colorIndex)
@@ -160,6 +266,7 @@ classdef BookManager < handle
             self.currentBookIndex = 1;
             self.booksPlaced = 0;
             self.originalBookHandles = {};
+            self.clearDebugMarkers();
             fprintf('Book manager reset\n');
         end
 
