@@ -1,9 +1,13 @@
-function BookPickAndPlace(robot, bookManager)
+function BookPickAndPlace(robot, bookManager, gui)
     % BookPickAndPlace - Automated Book Stacking System
     % Student: [Your Name], ID: [Your Student ID]
     % Course: Robotics Engineering
-    
+    % gui: Optional GUI reference for E-Stop and cancellation checking
+
     fprintf('Starting book stacking operation...\n');
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 3) && ~isempty(gui);
     
     % Get optimized home position for the robot
     homeQ = getHomePosition(robot);
@@ -23,12 +27,33 @@ function BookPickAndPlace(robot, bookManager)
     bookCount = 1;
     % Main loop to process all books sequentially
     while bookManager.currentBookIndex <= totalBooks
+        % Check if demo was cancelled or paused
+        if hasGUI
+            if gui.demoCancelled
+                fprintf('⚠ Book sorting cancelled by user\n');
+                break;
+            end
+
+            % Wait while paused
+            while gui.demoPaused && ~gui.demoCancelled
+                fprintf('⏸ Book sorting paused - waiting for resume...\n');
+                pause(0.5);
+                drawnow();
+            end
+
+            % Check again after pause
+            if gui.demoCancelled
+                fprintf('⚠ Book sorting cancelled by user\n');
+                break;
+            end
+        end
+
         fprintf('\n=== Processing Book %d/%d ===\n', bookCount, totalBooks);
-        
+
         % Retrieve book information from manager
         [bookPos, bookColor, bookIndex, bookHandle, originalVerts, topSurfacePos] = bookManager.getNextBook();
         if isempty(bookPos)
-            break; 
+            break;
         end
         
         fprintf('Picking %s book from [%.3f, %.3f, %.3f]\n', bookColor, bookPos(1), bookPos(2), bookPos(3));
@@ -54,12 +79,12 @@ function BookPickAndPlace(robot, bookManager)
         end
 
         fprintf('Moving to approach position: [%.3f, %.3f, %.3f]\n', approachPos(1), approachPos(2), approachPos(3));
-        if ~moveRobotWithConfig(robot, approachPos, pickConfig)
+        if ~moveRobotWithConfig(robot, approachPos, pickConfig, gui)
             fprintf('ERROR: Failed to move to approach position for book %d\n', bookIndex);
             break;
         end
         pause(0.2);
-        
+
         % === PICK PHASE: Move down to grasp the book ===
         pickPos = [bookPos(1), bookPos(2), bookPickHeight + 0.01];
 
@@ -70,7 +95,7 @@ function BookPickAndPlace(robot, bookManager)
         end
 
         fprintf('Moving to pick position: [%.3f, %.3f, %.3f]\n', pickPos(1), pickPos(2), pickPos(3));
-        if ~moveRobotWithConfig(robot, pickPos, pickConfig)
+        if ~moveRobotWithConfig(robot, pickPos, pickConfig, gui)
             fprintf('ERROR: Failed to move to pick position for book %d\n', bookIndex);
             break;
         end
@@ -104,16 +129,16 @@ function BookPickAndPlace(robot, bookManager)
         end
 
         fprintf('Lifting book to: [%.3f, %.3f, %.3f]\n', liftPos(1), liftPos(2), liftPos(3));
-        if ~moveRobotWithBookPerfectPlacement(robot, liftPos, bookHandle, bookData, pickConfig)
+        if ~moveRobotWithBookPerfectPlacement(robot, liftPos, bookHandle, bookData, pickConfig, gui)
             fprintf('ERROR: Failed to lift book %d\n', bookIndex);
             break;
         end
         pause(0.2);
-        
+
         % === TARGET APPROACH: Move above the placement location ===
         targetEePos = targetPos - bookOffset;
         fprintf('Target EE position for placement: [%.3f, %.3f, %.3f]\n', targetEePos(1), targetEePos(2), targetEePos(3));
-        
+
         targetApproach = [targetEePos(1), targetEePos(2), targetEePos(3) + 0.12];
 
         % SAFETY: Validate approach position is above table
@@ -123,7 +148,7 @@ function BookPickAndPlace(robot, bookManager)
         end
 
         fprintf('Moving to target approach: [%.3f, %.3f, %.3f]\n', targetApproach(1), targetApproach(2), targetApproach(3));
-        if ~moveRobotWithBookPerfectPlacement(robot, targetApproach, bookHandle, bookData, pickConfig)
+        if ~moveRobotWithBookPerfectPlacement(robot, targetApproach, bookHandle, bookData, pickConfig, gui)
             fprintf('ERROR: Failed to move to target approach for book %d\n', bookIndex);
             break;
         end
@@ -143,13 +168,13 @@ function BookPickAndPlace(robot, bookManager)
         % SPECIAL HANDLING FOR BOOKS 1 & 3: Use enhanced placement
         if bookIndex == 1 || bookIndex == 3
             fprintf('Using enhanced placement for book %d\n', bookIndex);
-            if ~moveRobotWithEnhancedPlacement(robot, targetEePos, bookHandle, bookData, pickConfig)
+            if ~moveRobotWithEnhancedPlacement(robot, targetEePos, bookHandle, bookData, pickConfig, gui)
                 fprintf('ERROR: Failed to place book %d\n', bookIndex);
                 break;
             end
         else
             % Standard placement for other books
-            if ~moveRobotWithBookPerfectPlacement(robot, targetEePos, bookHandle, bookData, pickConfig)
+            if ~moveRobotWithBookPerfectPlacement(robot, targetEePos, bookHandle, bookData, pickConfig, gui)
                 fprintf('ERROR: Failed to place book %d\n', bookIndex);
                 break;
             end
@@ -180,7 +205,7 @@ function BookPickAndPlace(robot, bookManager)
         
         % === RETREAT PHASE: Move away after placement ===
         fprintf('Retreating to: [%.3f, %.3f, %.3f]\n', targetApproach(1), targetApproach(2), targetApproach(3));
-        if ~moveRobotWithConfig(robot, targetApproach, pickConfig)
+        if ~moveRobotWithConfig(robot, targetApproach, pickConfig, gui)
             fprintf('ERROR: Failed to retreat after placing book %d\n', bookIndex);
             break;
         end
@@ -205,10 +230,13 @@ end
 
 
 %% ENHANCED PLACEMENT FUNCTION - Special handling for problematic books
-function success = moveRobotWithEnhancedPlacement(robot, targetPosition, bookHandle, bookData, referenceConfig)
+function success = moveRobotWithEnhancedPlacement(robot, targetPosition, bookHandle, bookData, referenceConfig, gui)
     steps = 25; %change back to 5
     qCurrent = robot.model.getpos();
     fprintf('  Using ENHANCED placement for [%.3f, %.3f, %.3f]\n', targetPosition(1), targetPosition(2), targetPosition(3));
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 6) && ~isempty(gui);
     
     % Create target transform
     targetTransform = transl(targetPosition) * trotx(pi) * trotz(-pi/2);
@@ -249,8 +277,29 @@ function success = moveRobotWithEnhancedPlacement(robot, targetPosition, bookHan
     
     % Execute trajectory
     qTraj = jtraj(qCurrent, qTarget, steps);
-    
+
     for i = 1:steps
+        % Check for cancellation or pause
+        if hasGUI
+            if gui.demoCancelled
+                fprintf('  Enhanced placement cancelled\n');
+                success = false;
+                return;
+            end
+
+            % Wait while paused
+            while gui.demoPaused && ~gui.demoCancelled
+                pause(0.1);
+                drawnow();
+            end
+
+            if gui.demoCancelled
+                fprintf('  Enhanced placement cancelled after pause\n');
+                success = false;
+                return;
+            end
+        end
+
         q = qTraj(i, :);
         robot.model.animate(q);
         
@@ -287,11 +336,14 @@ function success = moveRobotWithEnhancedPlacement(robot, targetPosition, bookHan
     success = true;
 end
 %% PERFECT PLACEMENT FUNCTION - Ensures books go exactly to target
-function success = moveRobotWithBookPerfectPlacement(robot, targetPosition, bookHandle, bookData, referenceConfig)
+function success = moveRobotWithBookPerfectPlacement(robot, targetPosition, bookHandle, bookData, referenceConfig, gui)
     steps = 25; %change back to 35
     qCurrent = robot.model.getpos();
     fprintf('  Moving with book to [%.3f, %.3f, %.3f]\n', targetPosition(1), targetPosition(2), targetPosition(3));
-    
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 6) && ~isempty(gui);
+
     targetTransform = transl(targetPosition) * trotx(pi) * trotz(-pi/2);
     
     % Your existing IK solving
@@ -325,9 +377,30 @@ function success = moveRobotWithBookPerfectPlacement(robot, targetPosition, book
     
     % Execute trajectory with book rotation
     for i = 1:steps
+        % Check for cancellation or pause
+        if hasGUI
+            if gui.demoCancelled
+                fprintf('  Book movement cancelled\n');
+                success = false;
+                return;
+            end
+
+            % Wait while paused
+            while gui.demoPaused && ~gui.demoCancelled
+                pause(0.1);
+                drawnow();
+            end
+
+            if gui.demoCancelled
+                fprintf('  Book movement cancelled after pause\n');
+                success = false;
+                return;
+            end
+        end
+
         q = qTraj(i, :);
         robot.model.animate(q);
-        
+
         try
             % Get current end effector pose
             currentEePose = robot.model.fkineUTS(q);
@@ -388,33 +461,57 @@ function success = moveRobotWithBookPerfectPlacement(robot, targetPosition, book
     success = true;
 end
 %% CONFIGURATION-BASED MOVEMENT FUNCTION
-function success = moveRobotWithConfig(robot, targetPosition, referenceConfig)
+function success = moveRobotWithConfig(robot, targetPosition, referenceConfig, gui)
     steps = 25;
     qCurrent = robot.model.getpos();
     fprintf('  Moving to [%.3f, %.3f, %.3f] with reference config\n', targetPosition(1), targetPosition(2), targetPosition(3));
-    
+
+    % Handle optional GUI parameter
+    hasGUI = (nargin >= 4) && ~isempty(gui);
+
     targetTransform = transl(targetPosition) * trotx(pi) * trotz(-pi/2);
     qTarget = robot.model.ikcon(targetTransform, referenceConfig);
-    
+
     if any(isnan(qTarget))
         fprintf('  WARNING: IK failed with reference config, trying current position\n');
         qTarget = robot.model.ikcon(targetTransform, qCurrent);
     end
-    
+
     if any(isnan(qTarget))
         fprintf('  ERROR: IK failed completely\n');
         success = false;
         return;
     end
-    
+
     qTraj = jtraj(qCurrent, qTarget, steps);
-    
+
     for i = 1:steps
+        % Check for cancellation or pause
+        if hasGUI
+            if gui.demoCancelled
+                fprintf('  Movement cancelled\n');
+                success = false;
+                return;
+            end
+
+            % Wait while paused
+            while gui.demoPaused && ~gui.demoCancelled
+                pause(0.1);
+                drawnow();
+            end
+
+            if gui.demoCancelled
+                fprintf('  Movement cancelled after pause\n');
+                success = false;
+                return;
+            end
+        end
+
         robot.model.animate(qTraj(i, :));
         drawnow();
         pause(0.01);
     end
-    
+
     success = true;
 end
 
