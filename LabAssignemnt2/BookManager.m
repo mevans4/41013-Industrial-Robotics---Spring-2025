@@ -197,5 +197,45 @@ classdef BookManager < handle
                 finalPos = [0, 1.05, 0.079*2];
             end
         end
+
+        % KUKA books (green books - indices 1 and 2)
+        function targetPos = getKukaTargetPosition(self, bookIndex)
+            switch bookIndex
+                case 1
+                    targetPos = [-0.5, -0.25*2.1, 0.079*1+0.005];
+                case 2
+                    targetPos = [-0.5, -0.25*2.1, 0.079*2+0.005];
+                otherwise
+                    targetPos = [];
+            end
+        end
+
+        function finalPos = getKukaFinalPosition(self, bookIndex)
+            if bookIndex == 1
+                finalPos = [0, -1.05, 0.079];
+            else
+                finalPos = [0, -1.05, 0.079*2];
+            end
+        end
+
+        % AUBO books (blue books - indices 5 and 6, but we'll use positions from center stack)
+        function targetPos = getAuboTargetPosition(self, bookIndex)
+            switch bookIndex
+                case 5
+                    targetPos = [0, 0, 0.079*1+0.005];
+                case 6
+                    targetPos = [0, 0, 0.079*2+0.005];
+                otherwise
+                    targetPos = [];
+            end
+        end
+
+        function finalPos = getAuboFinalPosition(self, bookIndex)
+            if bookIndex == 5
+                finalPos = [1.5, 0, 0.079];
+            else
+                finalPos = [1.5, 0, 0.079*2];
+            end
+        end
     end
 end
