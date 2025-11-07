@@ -23,20 +23,20 @@ classdef RobotFactory
             robots{2} = YaskawaGP4(YaskawaMotomanGP4_base);
             fprintf('YaskawaMotomanGP4 Created.\n');
 
-            % KukaKr3R540 (commented out but available)
+            % KukaKr3R540
             KukaKr3R540_pos_x = 0;
             KukaKr3R540_pos_y = -0.30 * 2.1;
             KukaKr3R540_base = transl(KukaKr3R540_pos_x, KukaKr3R540_pos_y, 0)*trotz(pi);
             robots{3} = KukaKr3R540(KukaKr3R540_base);
             fprintf('KukaKr3R540 Created.\n');
 
-            % AuboI5 (commented out but available)
-            % table_depth = 1.4;
-            % AuboI5_pos_x = 1.4/4 + 2.1/8;
-            % AuboI5_pos_y = 0;
-            % AuboI5_base = transl(AuboI5_pos_x, AuboI5_pos_y, 0) * trotz(pi);
-            % robots{4} = AuboI5(AuboI5_base);
-            % fprintf('AuboI5 Created.\n');
+            % AuboI5
+            table_depth = 1.4;
+            AuboI5_pos_x = 1.4/4 + 2.1/8;
+            AuboI5_pos_y = 0;
+            AuboI5_base = transl(AuboI5_pos_x, AuboI5_pos_y, 0) * trotz(pi);
+            robots{4} = AuboI5(AuboI5_base);
+            fprintf('AuboI5 Created.\n');
         end
 
         function robot = createLinearUR3(position, rotation)
